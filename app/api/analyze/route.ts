@@ -5,15 +5,13 @@ import { withRequest } from '@/lib/api/with-request';
 import { checkRateLimit } from '@/lib/api/rate-limit';
 import { getRequestContext } from '@/lib/observability/logger';
 import { analyzeBiasWithLlm } from '@/lib/ai/analyze-bias';
+import { analyzeSentiment } from '@/lib/nlp/sentiment';
+import { extractEntities } from '@/lib/nlp/ner';
+import { computeSignals } from '@/lib/analysis/signals';
 import type { AnalyzeResponse, NlpAnalysis } from '@/types/biaslens';
 
 const ANALYZE_RATE_LIMIT = 20;
 const ANALYZE_WINDOW_MS = 60_000;
-
-const NLP_STUB: NlpAnalysis = {
-  sentiment: { overall: 0, perSentence: [] },
-  entities: [],
-};
 
 export const POST = withRequest(
   withErrorHandling(async (request: Request) => {
@@ -27,13 +25,22 @@ export const POST = withRequest(
       );
     }
     const { text } = await parseJsonBody(request, analyzeRequestSchema);
+    const sentiment = analyzeSentiment(text);
+    const entities = extractEntities(text);
     const llm = await analyzeBiasWithLlm(text);
+
+    const nlp: NlpAnalysis = {
+      sentiment,
+      entities,
+    };
+    const signals = computeSignals(nlp, llm);
 
     const body: AnalyzeResponse = {
       id: crypto.randomUUID(),
       inputText: text,
-      nlp: NLP_STUB,
+      nlp,
       llm,
+      signals,
       cached: false,
       createdAt: new Date().toISOString(),
     };

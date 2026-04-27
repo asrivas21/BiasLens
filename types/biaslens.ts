@@ -1,4 +1,13 @@
-export type EntityType = 'PERSON' | 'ORG' | 'GPE' | 'MISC';
+export type EntityType =
+  | 'PERSON'
+  | 'ORG'
+  | 'GPE'
+  | 'MONEY'
+  | 'DATE'
+  | 'TIME'
+  | 'PERCENT'
+  | 'CARDINAL'
+  | 'MISC';
 
 export type Leaning = 'far-left' | 'left' | 'center' | 'right' | 'far-right';
 
@@ -6,6 +15,8 @@ export type SentenceSentiment = {
   text: string;
   score: number;
   flaggedTerms: string[];
+  start: number;
+  end: number;
 };
 
 export type Entity = {
@@ -40,11 +51,31 @@ export type AnalyzeRequest = {
   text: string;
 };
 
+export type EntitySignal = {
+  entity: string;
+  type: EntityType;
+  mentions: number;
+  avgSentiment: number;
+  loadedPhrasesNearby: string[];
+  flaggedTermsNearby: string[];
+};
+
+export type SignalAgreement = 'aligned' | 'llm-only' | 'nlp-only' | 'neutral';
+
+export type Signals = {
+  biasScore: number;
+  leaning: Leaning;
+  chargedLanguageScore: number;
+  entitySentiment: EntitySignal[];
+  agreement: SignalAgreement;
+};
+
 export type AnalyzeResponse = {
   id: string;
   inputText: string;
   nlp: NlpAnalysis;
   llm: LlmAnalysis;
+  signals: Signals;
   cached: boolean;
   createdAt: string;
 };

@@ -1,17 +1,8 @@
 import 'server-only';
-import {
-  APIConnectionError,
-  APIConnectionTimeoutError,
-  APIUserAbortError,
-  AuthenticationError,
-  BadRequestError,
-  InternalServerError,
-  PermissionDeniedError,
-  RateLimitError,
-} from 'openai';
 import { ZodError } from 'zod';
 import { ApiException } from '@/lib/api/errors';
 import { getOpenAIClient, openaiConfig } from '@/lib/ai/openai';
+import { classifyOpenAIError } from '@/lib/ai/openai-errors';
 import {
   BIAS_ANALYSIS_JSON_SCHEMA,
   BIAS_ANALYSIS_SCHEMA_NAME,
@@ -87,7 +78,12 @@ class OpenAIBiasAnalyzer implements BiasAnalyzer {
         max_completion_tokens: LLM_MAX_COMPLETION_TOKENS,
       });
     } catch (err) {
-      throw classifyOpenAIError(err, model, Date.now() - startedAt);
+      throw classifyOpenAIError(err, {
+        providerLabel: 'Bias analysis provider',
+        logPrefix: 'llm',
+        model,
+        durationMs: Date.now() - startedAt,
+      });
     }
 
     const choice = completion.choices[0];
@@ -162,57 +158,4 @@ export async function analyzeBiasWithLlm(text: string): Promise<LlmAnalysis> {
   return getBiasAnalyzer().analyze(text);
 }
 
-function classifyOpenAIError(err: unknown, model: string, durationMs: number): ApiException {
-  const message = err instanceof Error ? err.message : String(err);
-  const base = { model, durationMs, message } as const;
 
-  if (err instanceof RateLimitError) {
-    logger.warn('llm_rate_limited', base);
-    return new ApiException(
-      'LLM_FAILURE',
-      'Bias analysis provider is rate-limiting requests. Try again shortly.',
-    );
-  }
-  if (err instanceof AuthenticationError || err instanceof PermissionDeniedError) {
-    logger.error('llm_auth_failed', base);
-    return new ApiException(
-      'LLM_FAILURE',
-      'Bias analysis provider rejected the credentials.',
-    );
-  }
-  if (err instanceof BadRequestError) {
-    logger.error('llm_bad_request', base);
-    return new ApiException(
-      'LLM_FAILURE',
-      'Bias analysis provider rejected the request.',
-    );
-  }
-  if (err instanceof APIConnectionTimeoutError) {
-    logger.warn('llm_timeout', base);
-    return new ApiException(
-      'LLM_FAILURE',
-      'Bias analysis provider timed out. Try again shortly.',
-    );
-  }
-  if (err instanceof APIConnectionError) {
-    logger.warn('llm_connection_error', base);
-    return new ApiException(
-      'LLM_FAILURE',
-      'Bias analysis provider is unreachable. Try again shortly.',
-    );
-  }
-  if (err instanceof InternalServerError) {
-    logger.error('llm_server_error', base);
-    return new ApiException(
-      'LLM_FAILURE',
-      'Bias analysis provider is currently unavailable. Try again shortly.',
-    );
-  }
-  if (err instanceof APIUserAbortError) {
-    logger.warn('llm_aborted', base);
-    return new ApiException('LLM_FAILURE', 'Bias analysis request was aborted.');
-  }
-
-  logger.error('llm_request_failed', base);
-  return new ApiException('LLM_FAILURE', 'Bias analysis provider request failed.');
-}
