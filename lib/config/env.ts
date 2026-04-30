@@ -34,7 +34,10 @@ export const env = {
     return optional('OPENAI_EMBEDDING_MODEL', DEFAULTS.OPENAI_EMBEDDING_MODEL);
   },
   get SUPABASE_URL(): string {
-    return required('SUPABASE_URL');
+    // Strip trailing slashes — supabase-js appends `/rest/v1/...` to this
+    // value, and a trailing slash produces a malformed double-slash URL that
+    // PostgREST rejects with "Invalid path specified in request URL".
+    return required('SUPABASE_URL').replace(/\/+$/, '');
   },
   get SUPABASE_SERVICE_ROLE_KEY(): string {
     return required('SUPABASE_SERVICE_ROLE_KEY');
