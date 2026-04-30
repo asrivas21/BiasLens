@@ -1,6 +1,11 @@
 import { jsonOk } from '@/lib/api/responses';
 import { ApiException, withErrorHandling } from '@/lib/api/errors';
-import { analyzeRequestSchema, parseJsonBody } from '@/lib/api/validation';
+import {
+  MAX_TEXT_LENGTH,
+  MIN_TEXT_LENGTH,
+  analyzeRequestSchema,
+  parseJsonBody,
+} from '@/lib/api/validation';
 import { withRequest } from '@/lib/api/with-request';
 import { checkRateLimit } from '@/lib/api/rate-limit';
 import { getRequestContext, logger } from '@/lib/observability/logger';
@@ -13,7 +18,8 @@ import { hashInput, lookupExactCache } from '@/lib/cache/exact';
 import { lookupSemanticCache } from '@/lib/cache/semantic';
 import { writeAnalysis } from '@/lib/cache/write';
 import { openaiConfig } from '@/lib/ai/openai';
-import type { AnalyzeResponse, NlpAnalysis } from '@/types/biaslens';
+import { fetchAndExtractArticle } from '@/lib/extract/url';
+import type { AnalysisSource, AnalyzeResponse, NlpAnalysis } from '@/types/biaslens';
 
 const ANALYZE_RATE_LIMIT = 20;
 const ANALYZE_WINDOW_MS = 60_000;
@@ -29,8 +35,43 @@ export const POST = withRequest(
         { resetAt: rl.resetAt },
       );
     }
-    const { text } = await parseJsonBody(request, analyzeRequestSchema);
+    const input = await parseJsonBody(request, analyzeRequestSchema);
     const model = openaiConfig.chatModel;
+
+    // Resolve the input to a (text, optional source) pair. URL submissions go
+    // through the extractor; the same length bounds are enforced post-extract
+    // so a URL that yields a snippet is rejected for the same reason a typed
+    // snippet would be.
+    let text: string;
+    let source: AnalysisSource | undefined;
+    if ('url' in input) {
+      const article = await fetchAndExtractArticle(input.url);
+      text = article.text;
+      if (text.length < MIN_TEXT_LENGTH) {
+        throw new ApiException(
+          'BAD_REQUEST',
+          `Extracted article text is too short (${text.length} chars; minimum ${MIN_TEXT_LENGTH}).`,
+        );
+      }
+      let truncated = false;
+      if (text.length > MAX_TEXT_LENGTH) {
+        text = text.slice(0, MAX_TEXT_LENGTH);
+        truncated = true;
+        logger.info('url_extract_truncated', {
+          url: input.url,
+          extractedChars: text.length,
+        });
+      }
+      source = {
+        type: 'url',
+        url: article.finalUrl,
+        title: article.title,
+        siteName: article.siteName,
+        ...(truncated ? { truncated } : {}),
+      };
+    } else {
+      text = input.text;
+    }
 
     // Tier 1: exact-match cache by SHA-256 of the normalized input.
     const inputHash = hashInput(text);
@@ -74,7 +115,9 @@ export const POST = withRequest(
     };
     const signals = computeSignals(nlp, llm);
 
-    const cachePayload = { inputText: text, nlp, llm, signals };
+    // `source` is folded into the cached payload so subsequent hits retain
+    // the URL provenance without needing a separate column.
+    const cachePayload = { inputText: text, nlp, llm, signals, ...(source ? { source } : {}) };
     const insertedId = await writeAnalysis({
       input_hash: inputHash,
       input_text: text,
@@ -85,12 +128,12 @@ export const POST = withRequest(
       model,
     });
 
-    const body: AnalyzeResponse = {
+    const responseBody: AnalyzeResponse = {
       id: insertedId ?? crypto.randomUUID(),
       ...cachePayload,
       cached: false,
       createdAt: new Date().toISOString(),
     };
-    return jsonOk(body);
+    return jsonOk(responseBody);
   }),
 );

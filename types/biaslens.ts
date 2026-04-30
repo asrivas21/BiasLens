@@ -47,8 +47,17 @@ export type LlmAnalysis = {
   explanation: string;
 };
 
-export type AnalyzeRequest = {
-  text: string;
+// Either a raw text passage, or a URL the server will fetch and extract.
+export type AnalyzeRequest = { text: string } | { url: string };
+
+// Provenance for results derived from a fetched URL. Omitted when the user
+// pasted text directly.
+export type AnalysisSource = {
+  type: 'url';
+  url: string;
+  title: string | null;
+  siteName: string | null;
+  truncated?: boolean;
 };
 
 export type EntitySignal = {
@@ -76,6 +85,7 @@ export type AnalyzeResponse = {
   nlp: NlpAnalysis;
   llm: LlmAnalysis;
   signals: Signals;
+  source?: AnalysisSource;
   cached: boolean;
   createdAt: string;
 };
