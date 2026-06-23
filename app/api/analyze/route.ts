@@ -19,10 +19,38 @@ import { lookupSemanticCache } from '@/lib/cache/semantic';
 import { writeAnalysis } from '@/lib/cache/write';
 import { openaiConfig } from '@/lib/ai/openai';
 import { fetchAndExtractArticle } from '@/lib/extract/url';
-import type { AnalysisSource, AnalyzeResponse, NlpAnalysis } from '@/types/biaslens';
+import { getCurrentUser } from '@/lib/supabase-server-auth';
+import { getSupabase, USER_ANALYSES_TABLE } from '@/lib/supabase';
+import { env } from '@/lib/config/env';
+import { nanoid } from 'nanoid';
+import type { AnalysisSource, AnalyzeResponse, HfResult, NlpAnalysis } from '@/types/biaslens';
 
 const ANALYZE_RATE_LIMIT = 20;
 const ANALYZE_WINDOW_MS = 60_000;
+
+async function callHfClassifier(text: string): Promise<HfResult | null> {
+  try {
+    const res = await fetch(`${env.BIAS_API_URL}/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, content_type: 'article' }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return null;
+    return res.json() as Promise<HfResult>;
+  } catch {
+    logger.warn?.('hf_classifier_unavailable', { url: env.BIAS_API_URL });
+    return null;
+  }
+}
+
+async function associateWithUser(userId: string, analysisId: string): Promise<void> {
+  const supabase = getSupabase();
+  await supabase.from(USER_ANALYSES_TABLE).upsert(
+    { user_id: userId, analysis_id: analysisId, share_slug: nanoid(10) },
+    { onConflict: 'user_id,analysis_id', ignoreDuplicates: true },
+  );
+}
 
 export const POST = withRequest(
   withErrorHandling(async (request: Request) => {
@@ -38,10 +66,6 @@ export const POST = withRequest(
     const input = await parseJsonBody(request, analyzeRequestSchema);
     const model = openaiConfig.chatModel;
 
-    // Resolve the input to a (text, optional source) pair. URL submissions go
-    // through the extractor; the same length bounds are enforced post-extract
-    // so a URL that yields a snippet is rejected for the same reason a typed
-    // snippet would be.
     let text: string;
     let source: AnalysisSource | undefined;
     if ('url' in input) {
@@ -57,10 +81,7 @@ export const POST = withRequest(
       if (text.length > MAX_TEXT_LENGTH) {
         text = text.slice(0, MAX_TEXT_LENGTH);
         truncated = true;
-        logger.info('url_extract_truncated', {
-          url: input.url,
-          extractedChars: text.length,
-        });
+        logger.info('url_extract_truncated', { url: input.url, extractedChars: text.length });
       }
       source = {
         type: 'url',
@@ -73,11 +94,12 @@ export const POST = withRequest(
       text = input.text;
     }
 
-    // Tier 1: exact-match cache by SHA-256 of the normalized input.
     const inputHash = hashInput(text);
     const exactHit = await lookupExactCache(inputHash, model);
     if (exactHit) {
       logger.info('analyze_cache_hit', { tier: 'exact', cachedId: exactHit.id });
+      const user = await getCurrentUser().catch(() => null);
+      if (user) await associateWithUser(user.id, exactHit.id);
       return jsonOk<AnalyzeResponse>({
         ...exactHit.result,
         id: exactHit.id,
@@ -86,16 +108,12 @@ export const POST = withRequest(
       });
     }
 
-    // Tier 2: semantic cache via embedding ANN. Embedding is generated up-front
-    // so a hit reuses it for the lookup and a miss reuses it for the write.
     const embedding = await generateEmbedding(text);
     const semanticHit = await lookupSemanticCache(embedding, model);
     if (semanticHit) {
-      logger.info('analyze_cache_hit', {
-        tier: 'semantic',
-        cachedId: semanticHit.id,
-        similarity: semanticHit.similarity,
-      });
+      logger.info('analyze_cache_hit', { tier: 'semantic', cachedId: semanticHit.id, similarity: semanticHit.similarity });
+      const user = await getCurrentUser().catch(() => null);
+      if (user) await associateWithUser(user.id, semanticHit.id);
       return jsonOk<AnalyzeResponse>({
         ...semanticHit.result,
         id: semanticHit.id,
@@ -104,20 +122,25 @@ export const POST = withRequest(
       });
     }
 
-    // Cache miss — run the full pipeline.
-    const sentiment = analyzeSentiment(text);
-    const entities = extractEntities(text);
-    const llm = await analyzeBiasWithLlm(text);
+    // Cache miss — run full pipeline including optional HF classifier in parallel.
+    const [sentiment, entities, llm, hf] = await Promise.all([
+      Promise.resolve(analyzeSentiment(text)),
+      Promise.resolve(extractEntities(text)),
+      analyzeBiasWithLlm(text),
+      callHfClassifier(text),
+    ]);
 
-    const nlp: NlpAnalysis = {
-      sentiment,
-      entities,
-    };
+    const nlp: NlpAnalysis = { sentiment, entities };
     const signals = computeSignals(nlp, llm);
+    const cachePayload = {
+      inputText: text,
+      nlp,
+      llm,
+      signals,
+      ...(hf ? { hf } : {}),
+      ...(source ? { source } : {}),
+    };
 
-    // `source` is folded into the cached payload so subsequent hits retain
-    // the URL provenance without needing a separate column.
-    const cachePayload = { inputText: text, nlp, llm, signals, ...(source ? { source } : {}) };
     const insertedId = await writeAnalysis({
       input_hash: inputHash,
       input_text: text,
@@ -126,7 +149,12 @@ export const POST = withRequest(
       bias_score: llm.biasScore,
       leaning: llm.leaning,
       model,
+      hf_score: hf?.score ?? null,
+      hf_label: hf?.label ?? null,
     });
+
+    const user = await getCurrentUser().catch(() => null);
+    if (user && insertedId) await associateWithUser(user.id, insertedId);
 
     const responseBody: AnalyzeResponse = {
       id: insertedId ?? crypto.randomUUID(),

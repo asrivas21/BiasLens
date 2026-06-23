@@ -32,6 +32,7 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
           leaning={analysis.llm.leaning}
           biasScore={analysis.llm.biasScore}
           agreement={analysis.signals.agreement}
+          hf={analysis.hf}
           source={analysis.source}
         />
 

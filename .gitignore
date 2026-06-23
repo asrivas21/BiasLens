@@ -20,6 +20,16 @@
 # production
 /build
 
+# python
+bias-lens-api/.venv/
+bias-lens-api/__pycache__/
+bias-lens-api/**/__pycache__/
+*.pyc
+
+# playwright
+/playwright-report/
+/test-results/
+
 # misc
 .DS_Store
 *.pem

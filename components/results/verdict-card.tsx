@@ -1,10 +1,11 @@
-import type { AnalysisSource, Leaning } from '@/types/biaslens';
+import type { AnalysisSource, HfResult, Leaning } from '@/types/biaslens';
 import { BiasScale } from './bias-scale';
 
 type VerdictCardProps = {
   leaning: Leaning;
   biasScore: number;
   agreement: string;
+  hf?: HfResult;
   source?: AnalysisSource;
 };
 
@@ -32,7 +33,7 @@ function hostnameOf(url: string): string {
   }
 }
 
-export function VerdictCard({ leaning, biasScore, agreement, source }: VerdictCardProps) {
+export function VerdictCard({ leaning, biasScore, agreement, hf, source }: VerdictCardProps) {
   return (
     <section className="rounded-xl border border-line bg-surface p-6 sm:p-8">
       <p className="text-xs font-medium uppercase tracking-widest text-ink-muted">
@@ -44,6 +45,17 @@ export function VerdictCard({ leaning, biasScore, agreement, source }: VerdictCa
       <p className="mt-1 text-sm text-ink-muted">
         bias score {biasScore.toFixed(2)} · cross-signal agreement {agreement}
       </p>
+
+      {hf && (
+        <div className="mt-3 flex items-center gap-3 text-sm">
+          <span className="text-xs font-medium uppercase tracking-widest text-ink-muted">
+            Classifier
+          </span>
+          <span className={`font-medium ${hf.label === 'biased' ? 'text-lean-far-right' : 'text-green-600'}`}>
+            {hf.label === 'biased' ? 'Biased' : 'Non-biased'} · {Math.round(hf.score * 100)}% confidence
+          </span>
+        </div>
+      )}
 
       <div className="mt-6">
         <BiasScale biasScore={biasScore} />

@@ -1,0 +1,9 @@
+fastapi==0.111.0
+uvicorn==0.29.0
+transformers>=4.44.0,<5
+torch>=2.3.0
+pydantic>=2.7.0
+python-multipart>=0.0.9
+faster-whisper>=1.0.3
+yt-dlp>=2024.5.27
+ffmpeg-python>=0.2.0

@@ -9,17 +9,15 @@ export type AnalysisRow = {
   id: string;
   input_hash: string;
   input_text: string;
-  // The cached result is the AnalyzeResponse minus the per-request fields
-  // (id/cached/createdAt) that the route layer re-stamps on every response.
   result: Omit<AnalyzeResponse, 'id' | 'cached' | 'createdAt'>;
-  // pgvector returns the embedding as a JSON-encoded array string by default.
-  // We never read it back into JS — it's only used inside SQL for ANN — so the
-  // application type is `unknown`. Inserts pass `number[]` and supabase-js
-  // serializes correctly.
   embedding: unknown;
   bias_score: number;
   leaning: string;
   model: string;
+  hf_score: number | null;
+  hf_label: string | null;
+  content_type: string;
+  input_url: string | null;
   created_at: string;
 };
 
@@ -31,7 +29,21 @@ export type AnalysisInsert = {
   bias_score: number;
   leaning: string;
   model: string;
+  hf_score?: number | null;
+  hf_label?: string | null;
+  content_type?: string;
+  input_url?: string | null;
 };
+
+export type UserAnalysisRow = {
+  id: string;
+  user_id: string;
+  analysis_id: string;
+  share_slug: string;
+  created_at: string;
+};
+
+export const USER_ANALYSES_TABLE = 'user_analyses' as const;
 
 let client: SupabaseClient | null = null;
 

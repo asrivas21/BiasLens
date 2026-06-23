@@ -47,6 +47,14 @@ export type LlmAnalysis = {
   explanation: string;
 };
 
+export type HfResult = {
+  label: string;           // "biased" | "non-biased"
+  score: number;           // 0.0 – 1.0 confidence
+  emotional_intensity: number;
+  top_phrases: string[];
+  content_type: string;
+};
+
 // Either a raw text passage, or a URL the server will fetch and extract.
 export type AnalyzeRequest = { text: string } | { url: string };
 
@@ -85,9 +93,35 @@ export type AnalyzeResponse = {
   nlp: NlpAnalysis;
   llm: LlmAnalysis;
   signals: Signals;
+  hf?: HfResult;
   source?: AnalysisSource;
   cached: boolean;
   createdAt: string;
+};
+
+export type ContentType = 'article' | 'short_form';
+
+export type ShortFormResult = {
+  transcript: string;
+  language: string;
+  duration_seconds: number;
+  segments: Array<{ start: number; end: number; text: string }>;
+  bias: HfResult;
+};
+
+export type UserAnalysis = {
+  id: string;
+  analysisId: string;
+  shareSlug: string;
+  createdAt: string;
+  analysis: {
+    biasScore: number;
+    leaning: string;
+    hfScore: number | null;
+    hfLabel: string | null;
+    inputPreview: string;
+    contentType: string;
+  };
 };
 
 export type AnalysisSummary = {

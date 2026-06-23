@@ -1,4 +1,4 @@
-import { AnalyzeForm } from '@/components/analyze/analyze-form';
+import { TabView } from '@/components/analyze/tab-view';
 
 export default function Home() {
   return (
@@ -10,13 +10,12 @@ export default function Home() {
         Read between the lines.
       </h1>
       <p className="mt-4 max-w-xl text-lg leading-relaxed text-ink-muted">
-        Paste a passage of news writing or commentary. BiasLens combines
-        sentiment analysis, named-entity recognition, and a language model
-        to surface loaded language, framing, and political leaning — without
-        making any claim about whether the text is true.
+        Paste a news article, drop a URL, or link a short-form video. BiasLens
+        combines a HuggingFace classifier, sentiment analysis, named-entity recognition,
+        and a language model to surface loaded language, framing, and political leaning.
       </p>
       <div className="mt-10">
-        <AnalyzeForm />
+        <TabView />
       </div>
     </div>
   );
