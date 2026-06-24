@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -59,7 +60,8 @@ async def transcribe_and_analyze(req: TranscribeRequest):
         transcription = transcriber.transcribe(req.url)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception:
+    except Exception as e:
+        logging.exception("transcribe_and_analyze failed: %s", e)
         raise HTTPException(
             status_code=500,
             detail="Failed to process video. Check the URL and try again.",
